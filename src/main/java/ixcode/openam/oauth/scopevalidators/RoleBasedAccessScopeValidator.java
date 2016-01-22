@@ -24,13 +24,11 @@
 
 package ixcode.openam.oauth.scopevalidators;
 
-import com.iplanet.sso.SSOException;
-import com.sun.identity.idm.AMIdentity;
-import com.sun.identity.idm.IdRepoException;
+import ixcode.openam.oauth.scopevalidators.domain.Group;
+import ixcode.openam.oauth.scopevalidators.domain.Identity;
+import ixcode.openam.oauth.scopevalidators.domain.IdentityRepository;
+import ixcode.openam.oauth.scopevalidators.domain.Scopes;
 import org.forgerock.oauth2.core.*;
-import org.forgerock.oauth2.core.exceptions.InvalidClientException;
-import org.forgerock.oauth2.core.exceptions.InvalidScopeException;
-import org.forgerock.oauth2.core.exceptions.ServerException;
 import org.forgerock.oauth2.core.exceptions.UnauthorizedClientException;
 import org.forgerock.openam.oauth2.IdentityManager;
 import org.forgerock.openam.oauth2.OpenAMAccessToken;
@@ -41,7 +39,8 @@ import org.slf4j.LoggerFactory;
 import javax.inject.Inject;
 import java.util.*;
 
-import static com.sun.identity.idm.IdType.GROUP;
+import static ixcode.openam.oauth.scopevalidators.RoleBasedAccessScopeValidator.RoleBasedScopeNames.*;
+import static java.lang.String.format;
 
 /**
  * See https://github.com/OpenRock/OpenAM/blob/master/openam-oauth2/src/main/java/org/forgerock/openam/oauth2/OpenAMScopeValidator.java
@@ -51,64 +50,22 @@ import static com.sun.identity.idm.IdType.GROUP;
  * <p/>
  * This is in AccessControl -> Realm -> Services -> Oauth2Provider
  */
-public class RoleBasedAccessScopeValidator implements ScopeValidator {
+public class RoleBasedAccessScopeValidator extends AbstractScopeValidator {
 
-    Logger LOG = LoggerFactory.getLogger(RoleBasedAccessScopeValidator.class);
 
-    private final IdentityManager identityManager;
-    private final OpenIDTokenIssuer openIDTokenIssuer;
-    private final OAuth2ProviderSettingsFactory providerSettingsFactory;
+    public enum RoleBasedScopeNames implements Scopes.ScopeName {
+        username, display_name, email, roles;
+    }
+
+
+    private static final Logger LOG = LoggerFactory.getLogger(RoleBasedAccessScopeValidator.class);
+
+    private final IdentityRepository identityRepository;
+
 
     @Inject
-    public RoleBasedAccessScopeValidator(IdentityManager identityManager, OpenIDTokenIssuer openIDTokenIssuer,
-                                         OAuth2ProviderSettingsFactory providerSettingsFactory) {
-        this.identityManager = identityManager;
-        this.openIDTokenIssuer = openIDTokenIssuer;
-        this.providerSettingsFactory = providerSettingsFactory;
-    }
-
-    @Override
-    public Set<String> validateAuthorizationScope(ClientRegistration clientRegistration,
-                                                  Set<String> scope,
-                                                  OAuth2Request oAuth2Request) throws InvalidScopeException, ServerException {
-        if (scope == null || scope.isEmpty()) {
-            return clientRegistration.getDefaultScopes();
-        }
-
-        Set<String> scopes = new HashSet<String>(
-                clientRegistration.getAllowedScopes());
-        scopes.retainAll(scope);
-        return scopes;
-    }
-
-    @Override
-    public Set<String> validateAccessTokenScope(
-            ClientRegistration clientRegistration,
-            Set<String> scope,
-            OAuth2Request request) {
-        if (scope == null || scope.isEmpty()) {
-            return clientRegistration.getDefaultScopes();
-        }
-
-        Set<String> scopes = new HashSet<String>(
-                clientRegistration.getAllowedScopes());
-        scopes.retainAll(scope);
-        return scopes;
-    }
-
-    @Override
-    public Set<String> validateRefreshTokenScope(
-            ClientRegistration clientRegistration,
-            Set<String> requestedScope,
-            Set<String> tokenScope,
-            OAuth2Request request) {
-        if (requestedScope == null || requestedScope.isEmpty()) {
-            return tokenScope;
-        }
-
-        Set<String> scopes = new HashSet<String>(tokenScope);
-        scopes.retainAll(requestedScope);
-        return scopes;
+    public RoleBasedAccessScopeValidator(IdentityManager identityManager) {
+        identityRepository = new IdentityRepository(identityManager);
     }
 
     /**
@@ -118,115 +75,37 @@ public class RoleBasedAccessScopeValidator implements ScopeValidator {
      * @return The map of read and write permissions,
      * with permissions set to {@code true} or {@code false},
      * as appropriate.
-     *
      * @TODO - Work out how to enable logging properly so we can use Log4J debug instead of sout
-     * @TODO - only put in the scopes that are asked for (see how scopes is unused)
      */
-    private Map<String, Object> mapScopes(AccessToken token) {
-        Set<String> scopes = token.getScope();
-        Map<String, Object> responseScopes = new HashMap<String, Object>();
+    @Override
+    protected Map<String, Object> mapScopes(AccessToken token) {
+        Scopes availableScopes = new Scopes();
 
         try {
-            AMIdentity id = identityManager.getResourceOwnerIdentity(
-                    token.getResourceOwnerId(),
-                    ((OpenAMAccessToken) token).getRealm());
+            Identity id = identityRepository.get(token);
 
-            System.out.println("IDENTITY - [" + id.getClass().getName() + " " + id.toString());
+            System.out.println(id.toString());
 
-            responseScopes.put("cn", id.getAttribute("cn"));
-            responseScopes.put("uid", id.getAttribute("uid"));
-            responseScopes.put("mail", id.getAttribute("mail"));
+            availableScopes.put(username, id.uid());
+            availableScopes.put(display_name, id.cn());
+            availableScopes.put(email, id.email());
 
             Set<String> groupIds = new HashSet<String>();
-            for (Iterator itr = id.getMemberships(GROUP).iterator(); itr.hasNext(); ) {
-                AMIdentity group = (AMIdentity) itr.next();
-
-                groupIds.add(attributeToString(group.getAttribute("cn")));
+            for (Group group : id.getGroups()) {
+                groupIds.add(group.cn());
             }
 
             System.out.println("ROLES: " + groupIds);
-            responseScopes.put("roles", groupIds);
+            availableScopes.put(roles, groupIds);
 
         } catch (Throwable t) {
             throw new RuntimeException("Unable to retrieve identity information! (See Cause)", t);
         }
 
-
-
-
-
-        return responseScopes;
+        return availableScopes.filterOnRequestedScopes(token.getScope());
     }
 
-    private static String attributeToString(Set attributeValues) {
-        if (attributeValues.size() > 1) {
-            System.out.println("WARNING!! " + RoleBasedAccessScopeValidator.class.getName() + " - unexpectedly there is more than one value for an attribute - " + attributeValues.toString());
-        }
-        return attributeValues.iterator().next().toString();
-    }
-
-    private static void debugGroup(AMIdentity group) throws IdRepoException, SSOException {
-        System.out.println("GROUP - [" + group.getClass().getName() + " " + group.toString() + "]");
-        Map attr = group.getAttributes();
-        System.out.println("Group Attributes:");
-        for (Iterator<Map.Entry> itrAttr = attr.entrySet().iterator(); itrAttr.hasNext();) {
-            Map.Entry entry = itrAttr.next();
-            System.out.println(entry.getKey() + "=" + entry.getValue());
-        }
-    }
-
-    private String populateWithIdentity(String response, AMIdentity id) throws IdRepoException, SSOException {
-        Map m = id.getAttributes();
-
-        Set<Map.Entry> entrySet = m.entrySet();
 
 
-        Iterator itr = entrySet.iterator();
-        while (itr.hasNext()) {
-            Map.Entry entry = (Map.Entry) itr.next();
-            response += entry.getKey() + "=" + entry.getValue() + ", ";
 
-        }
-        return response;
-    }
-
-    private String checkIdentityManager() {
-        if (identityManager != null) {
-            return identityManager.getClass().getName();
-        } else {
-            return "Identity manager was not injected.";
-        }
-    }
-
-    @Override
-    public Map<String, Object> getUserInfo(
-            AccessToken token,
-            OAuth2Request request)
-            throws UnauthorizedClientException {
-        Map<String, Object> response = mapScopes(token);
-        response.put(OAuth2Constants.JWTTokenParams.SUB, token.getResourceOwnerId());
-
-
-        return response;
-    }
-
-    @Override
-    public Map<String, Object> evaluateScope(AccessToken token) {
-        return mapScopes(token);
-    }
-
-    @Override
-    public Map<String, String> additionalDataToReturnFromAuthorizeEndpoint(
-            Map<String, Token> tokens,
-            OAuth2Request request) {
-        return new HashMap<String, String>(); // No special handling
-    }
-
-    @Override
-    public void additionalDataToReturnFromTokenEndpoint(
-            AccessToken token,
-            OAuth2Request request)
-            throws ServerException, InvalidClientException {
-        // No special handling
-    }
 }
