@@ -48,7 +48,7 @@ public class Identity {
         return attributeAsString(cn);
     }
 
-    public String email() {
+    public String mail() {
         return attributeAsString(mail);
     }
 

@@ -29,10 +29,7 @@ import ixcode.openam.oauth.scopevalidators.domain.Identity;
 import ixcode.openam.oauth.scopevalidators.domain.IdentityRepository;
 import ixcode.openam.oauth.scopevalidators.domain.Scopes;
 import org.forgerock.oauth2.core.*;
-import org.forgerock.oauth2.core.exceptions.UnauthorizedClientException;
 import org.forgerock.openam.oauth2.IdentityManager;
-import org.forgerock.openam.oauth2.OpenAMAccessToken;
-import org.forgerock.openidconnect.OpenIDTokenIssuer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -88,7 +85,7 @@ public class RoleBasedAccessScopeValidator extends AbstractScopeValidator {
 
             availableScopes.put(username, id.uid());
             availableScopes.put(display_name, id.cn());
-            availableScopes.put(email, id.email());
+            availableScopes.put(email, id.mail());
 
             Set<String> groupIds = new HashSet<String>();
             for (Group group : id.getGroups()) {

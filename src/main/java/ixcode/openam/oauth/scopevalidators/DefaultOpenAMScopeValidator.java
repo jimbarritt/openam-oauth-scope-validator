@@ -63,7 +63,7 @@ public class DefaultOpenAMScopeValidator implements ScopeValidator {
 
     static {
         scopeToUserUserProfileAttributes = new HashMap<String, Object>();
-        scopeToUserUserProfileAttributes.put("email","mail");
+        scopeToUserUserProfileAttributes.put("mail","mail");
         scopeToUserUserProfileAttributes.put("address", "postaladdress");
         scopeToUserUserProfileAttributes.put("phone", "telephonenumber");
 
@@ -199,7 +199,7 @@ public class DefaultOpenAMScopeValidator implements ScopeValidator {
             } else if (attributes instanceof Map){
 
                 //the attribute is a collection of attributes
-                //for example profile can be address, email, etc...
+                //for example profile can be address, mail, etc...
                 if (attributes != null && !((Map<String,String>) attributes).isEmpty()){
                     for (Map.Entry<String, String> entry: ((Map<String, String>) attributes).entrySet()){
                         String attribute = null;

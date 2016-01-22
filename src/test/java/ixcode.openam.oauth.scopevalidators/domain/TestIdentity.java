@@ -10,7 +10,6 @@ import org.junit.Test;
 
 import java.net.InetAddress;
 import java.security.Principal;
-import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -28,7 +27,7 @@ public class TestIdentity {
 
         assertThat(id.uid(), is("uid"));
         assertThat(id.cn(), is("cn"));
-        assertThat(id.email(), is("email"));
+        assertThat(id.mail(), is("mail"));
 
     }
 
